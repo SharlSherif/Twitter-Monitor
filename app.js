@@ -1,19 +1,19 @@
 const app = require('express')()
 const async = require('async')
+const fs = require('fs')
 const puppeteer = require('puppeteer');
 const Discord = require("discord.js")
 const bot = new Discord.Client()
 bot.login('NjIyMDYzODQ4ODY1NzkyMDAw.XXulOg.HwOXEbuFkVlAQLNFjmo6JuC4XpI');
 
 const channelName = 'general';
-// const urls = [
-//   'https://twitter.com/testmonitoring4',
-//   'https://twitter.com/Cybersole'
-// ]
-let url = ''
-// print process.argv
-url = process.argv[2]
-console.log(url)
+const urls = [
+  'https://twitter.com/testmonitoring4',
+  'https://twitter.com/Cybersole',
+  'https://twitter.com/MohamedAFarg1'
+]
+const previousTweets = JSON.parse(fs.readFileSync("./cache.json")).lastTweets
+console.log(previousTweets)
 bot.on('ready', () => {
   console.log('bot has launched..');
   bot.user.setStatus('online');
@@ -26,10 +26,17 @@ bot.on('disconnect', function (msg, code) {
   if (code == 0) return console.error(msg);
 });
 
-
+// const previousTweets = JSON.parse(fs.readFileSync("./cache.json"));
+// console.log(previousTweets)
+// previousTweets.lastTweets.push({url: 'a7a', tweet_id: 'lol'})
+// fs.writeFileSync("./cache.json", JSON.stringify(previousTweets, null, 4));
+// console.log(JSON.parse(fs.readFileSync("./cache.json")));
 async function startMonitoring(channel) {
   let browser = await puppeteer.launch({ headless: true });
-  openNewPageNavigateToURL(browser, url, channel)
+
+  openNewPageNavigateToURL(browser, 'https://twitter.com/testmonitoring4', channel)
+  // openNewPageNavigateToURL(browser, 'https://twitter.com/Cybersole', channel)
+  // openNewPageNavigateToURL(browser,   'https://twitter.com/MohamedAFarg1', channel)
 }
 
 async function openNewPageNavigateToURL(browser, url, channel) {
@@ -48,7 +55,13 @@ async function openNewPageNavigateToURL(browser, url, channel) {
     });
     await page.goto(url);
 
-    getNewTweet(page, url, channel, null, 0)
+    const lastTweet = previousTweets.find(({ url }) => url == url);
+
+    if (!!lastTweet) {
+      getNewTweet(page, url, channel, lastTweet.tweet_id, 0)
+    } else {
+      getNewTweet(page, url, channel, null, 0)
+    }
   })
 }
 
@@ -67,17 +80,18 @@ const getNewTweet = async (page, url, channel, lastTweetId, count) => {
       }
     }))
 
-    console.log(tweet.id, lastTweetId)
+    // console.log(tweet.id, lastTweetId)
     if (tweet.id !== lastTweetId) { // if this tweet is not the same as the previous one
 
       lastTweetId = tweet.id
+      previousTweets.push({ url, tweet_id: lastTweetId })      
+      fs.writeFileSync("./cache.json", JSON.stringify({lastTweets: previousTweets}, null, 4));
+
       tweet = DiscordEmbed({ ...tweet, profileLink: url, link: generateTweetLink(tweet.author, tweet.id) })
 
       channel.send(tweet)
       // repeat the process
       await RefreshPageAndWait(page).then(() => {
-        count++
-        console.log(count)
         getNewTweet(page, url, channel, lastTweetId, count)
       })
     } else { // same tweet
@@ -112,6 +126,36 @@ const RefreshPageAndWait = page => {
       .then(() => resolve());
   })
 }
+
+// function exitHandler() {
+//   const previousTweets = JSON.parse(fs.readFileSync("./cache.json"));
+//   previousTweets.lastTweets.push(data)
+//   fs.writeFileSync("./cache.json", JSON.stringify(previousTweets, null, 4));
+//   console.log(previousTweets)
+//   // process.exit();
+// }
+
+process.stdin.resume();//so the program will not close instantly
+
+function exitHandler(options, exitCode) {
+  if (options.cleanup) console.log('clean');
+  if (exitCode || exitCode === 0) console.log(exitCode);
+  if (options.exit) process.exit();
+}
+
+//do something when app is closing
+process.on('exit', exitHandler.bind(null, { cleanup: true }));
+
+//catches ctrl+c event
+process.on('SIGINT', exitHandler.bind(null, { exit: true }));
+
+// catches "kill pid" (for example: nodemon restart)
+process.on('SIGUSR1', exitHandler.bind(null, { exit: true }));
+process.on('SIGUSR2', exitHandler.bind(null, { exit: true }));
+
+//catches uncaught exceptions
+process.on('uncaughtException', exitHandler.bind(null, { exit: true }));
+
 app.listen(4000, () => console.log(`server is up on 4000`));
 
 module.exports = app;
