@@ -7,13 +7,9 @@ const bot = new Discord.Client()
 bot.login('NjIyMDYzODQ4ODY1NzkyMDAw.XXulOg.HwOXEbuFkVlAQLNFjmo6JuC4XpI');
 
 const channelName = 'general';
-const urls = [
-  'https://twitter.com/testmonitoring4',
-  'https://twitter.com/Cybersole',
-  'https://twitter.com/MohamedAFarg1'
-]
-const previousTweets = JSON.parse(fs.readFileSync("./cache.json")).lastTweets
-console.log(previousTweets)
+
+let previousTweets = JSON.parse(fs.readFileSync("./cache.json")).lastTweets
+
 bot.on('ready', () => {
   console.log('bot has launched..');
   bot.user.setStatus('online');
@@ -34,7 +30,8 @@ bot.on('disconnect', function (msg, code) {
 async function startMonitoring(channel) {
   let browser = await puppeteer.launch({ headless: true });
 
-  openNewPageNavigateToURL(browser, 'https://twitter.com/testmonitoring4', channel)
+  // openNewPageNavigateToURL(browser, 'https://twitter.com/testmonitoring4', channel)
+  openNewPageNavigateToURL(browser, 'https://twitter.com/search?f=tweets&vertical=news&q=hong%20kong&src=unkn',channel)
   // openNewPageNavigateToURL(browser, 'https://twitter.com/Cybersole', channel)
   // openNewPageNavigateToURL(browser,   'https://twitter.com/MohamedAFarg1', channel)
 }
@@ -74,8 +71,8 @@ const getNewTweet = async (page, url, channel, lastTweetId, count) => {
       content: document.querySelector('.stream-item .js-tweet-text-container').innerText,
       id: document.querySelector('.js-stream-item').id.replace('stream-item-tweet-', ''),
       author: {
-        name: document.querySelector('.ProfileHeaderCard-name').innerText,
-        avatar: document.querySelector('.ProfileAvatar-container').href,
+        name: !!document.querySelector('.ProfileHeaderCard-name') ? document.querySelector('.ProfileHeaderCard-name').innerText: null,
+        avatar: !!document.querySelector('.ProfileHeaderCard-container') ? document.querySelector('.ProfileAvatar-container').href : null,
         followers: !!document.querySelector('.ProfileNav-item--followers a .ProfileNav-value') ? document.querySelector('.ProfileNav-item--followers a .ProfileNav-value').innerText : null,
       }
     }))
@@ -84,9 +81,7 @@ const getNewTweet = async (page, url, channel, lastTweetId, count) => {
     if (tweet.id !== lastTweetId) { // if this tweet is not the same as the previous one
 
       lastTweetId = tweet.id
-      previousTweets.push({ url, tweet_id: lastTweetId })      
-      fs.writeFileSync("./cache.json", JSON.stringify({lastTweets: previousTweets}, null, 4));
-
+      saveToCacheFile(previousTweets, { url, tweet_id: lastTweetId }, url)
       tweet = DiscordEmbed({ ...tweet, profileLink: url, link: generateTweetLink(tweet.author, tweet.id) })
 
       channel.send(tweet)
@@ -125,6 +120,20 @@ const RefreshPageAndWait = page => {
       .waitForSelector('.stream-item .js-tweet-text-container')
       .then(() => resolve());
   })
+}
+
+const saveToCacheFile = (previousTweets, tweet, url) => {
+  if(previousTweets.length < 1) {
+    previousTweets.push(tweet)
+  }else {
+    previousTweets = previousTweets.map(matweet => {
+      if (matweet.url == url) {
+        return tweet
+      }
+    })
+  }
+
+  fs.writeFileSync("./cache.json", JSON.stringify({ lastTweets: previousTweets }, null, 4));
 }
 
 // function exitHandler() {
