@@ -1,5 +1,8 @@
 {
     "lastTweets": [
-        null
+        {
+            "url": "https://twitter.com/testmonitoring4/",
+            "tweet_id": "1176919292635439105"
+        }
     ]
 }

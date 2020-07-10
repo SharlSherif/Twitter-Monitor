@@ -1,170 +1,186 @@
 const app = require('express')()
-const async = require('async')
+const getPort = require('get-port');
 const fs = require('fs')
 const puppeteer = require('puppeteer');
 const Discord = require("discord.js")
 const bot = new Discord.Client()
-bot.login('NjIyMDYzODQ4ODY1NzkyMDAw.XXulOg.HwOXEbuFkVlAQLNFjmo6JuC4XpI');
-
+// const BOT_TOKEN ='NjI0Mzk0MjQ2NDA0OTY0MzYy.XYUE7g.QFSJ7aSylTk0tncdG3YyuPhK8jo'
+// const channelName = 'argus-twitter';
+const BOT_TOKEN = 'NjIyMDYzODQ4ODY1NzkyMDAw.XYUITA.StTvqBOYVtN_Kiu3ZrXctTxgTUk'
 const channelName = 'general';
+bot.login(BOT_TOKEN);
 
 let previousTweets = JSON.parse(fs.readFileSync("./cache.json")).lastTweets
+const url = `https://twitter.com/${process.argv[2]}/`
 
 bot.on('ready', () => {
-  console.log('bot has launched..');
-  bot.user.setStatus('online');
-  bot.user.setActivity('running');
-  const channel = bot.channels.find('name', channelName)
-  startMonitoring(channel)
+    console.log('bot has launched..');
+    bot.user.setStatus('online');
+    const channel = bot.channels.find((x) => x.name == channelName)
+    startMonitoring(channel)
 });
 
 bot.on('disconnect', function (msg, code) {
-  if (code == 0) return console.error(msg);
+    if (code == 0) return console.error(msg);
 });
 
-// const previousTweets = JSON.parse(fs.readFileSync("./cache.json"));
-// console.log(previousTweets)
-// previousTweets.lastTweets.push({url: 'a7a', tweet_id: 'lol'})
-// fs.writeFileSync("./cache.json", JSON.stringify(previousTweets, null, 4));
-// console.log(JSON.parse(fs.readFileSync("./cache.json")));
 async function startMonitoring(channel) {
-  let browser = await puppeteer.launch({ headless: true });
+    let browser = await puppeteer.launch({ headless: true, args: ['--no-sandbox', '--disable-setuid-sandbox'] });
 
-  // openNewPageNavigateToURL(browser, 'https://twitter.com/testmonitoring4', channel)
-  openNewPageNavigateToURL(browser, 'https://twitter.com/search?f=tweets&vertical=news&q=hong%20kong&src=unkn',channel)
-  // openNewPageNavigateToURL(browser, 'https://twitter.com/Cybersole', channel)
-  // openNewPageNavigateToURL(browser,   'https://twitter.com/MohamedAFarg1', channel)
+    openNewPageNavigateToURL(browser, url, channel)
 }
 
 async function openNewPageNavigateToURL(browser, url, channel) {
-  return new Promise(async (resolve, reject) => {
-    let page = await browser.newPage();
-    await page.setViewport({ width: 1920, height: 1080 });
-    await page.setRequestInterception(true);
+    return new Promise(async (resolve, reject) => {
+        let page = await browser.newPage();
+        await page.setViewport({ width: 1920, height: 1080 });
+        await page.setRequestInterception(true);
 
-    page.on('request', (req) => {
-      if (req.resourceType() === 'image' || req.resourceType() === 'stylesheet') {
-        req.abort();
-      }
-      else {
-        req.continue();
-      }
-    });
-    await page.goto(url);
+        page.on('request', (req) => {
+            if (req.resourceType() === 'image' || req.resourceType() === 'stylesheet') {
+                req.abort();
+            }
+            else {
+                req.continue();
+            }
+        });
+        try {
+            await page.goto(url);
+        }
+        catch (e) {
+            console.log(e)
+        }
 
-    const lastTweet = previousTweets.find(({ url }) => url == url);
+        let lastTweet = previousTweets.find((x) => x.url == url);
 
-    if (!!lastTweet) {
-      getNewTweet(page, url, channel, lastTweet.tweet_id, 0)
-    } else {
-      getNewTweet(page, url, channel, null, 0)
-    }
-  })
+        if (!!lastTweet) {
+            getNewTweet(page, url, channel, lastTweet.tweet_id, 0)
+        } else {
+            getNewTweet(page, url, channel, null, 0)
+        }
+    })
 }
 
 const getNewTweet = async (page, url, channel, lastTweetId, count) => {
-  let timestamp = await page.evaluate(() => document.querySelector('.stream-item-header small span').innerText)
-  count++
-  console.log(url, count)
-  if (!!timestamp.match(/[[1-60{s},1]/g) && timestamp.match(/[[1-60{s},1]/g).length > 1) { // new tweet
-    let tweet = await page.evaluate(() => ({
-      content: document.querySelector('.stream-item .js-tweet-text-container').innerText,
-      id: document.querySelector('.js-stream-item').id.replace('stream-item-tweet-', ''),
-      author: {
-        name: !!document.querySelector('.ProfileHeaderCard-name') ? document.querySelector('.ProfileHeaderCard-name').innerText: null,
-        avatar: !!document.querySelector('.ProfileHeaderCard-container') ? document.querySelector('.ProfileAvatar-container').href : null,
-        followers: !!document.querySelector('.ProfileNav-item--followers a .ProfileNav-value') ? document.querySelector('.ProfileNav-item--followers a .ProfileNav-value').innerText : null,
-      }
-    }))
+    let timestamp = await page.evaluate(() => document.querySelector('.js-stream-item:not(.js-pinned) .time span').innerText)
+    count++
+    if (!!timestamp.match(/[[1-60{s},1]/g) && timestamp.match(/[[1-60{s},1]/g).length == timestamp.length) { // new tweet
+        console.log('found new tweet', timestamp)
+        let tweet = await page.evaluate(() => {
+            const isMedia = document.querySelector(`#stream-item-tweet-${document.querySelector('.js-stream-item:not(.js-pinned)').attributes['data-item-id'].textContent} .AdaptiveMedia-container`);
+            const filteredContent = document.querySelector('.js-stream-item:not(.js-pinned) .js-tweet-text-container p').innerHTML.replace(/<(\w+)[^>]*>.*<\/\1>/g, '');
+            let media = []
 
-    // console.log(tweet.id, lastTweetId)
-    if (tweet.id !== lastTweetId) { // if this tweet is not the same as the previous one
+            if (!!isMedia) {
+                for (let child of Array.from(isMedia.children)) {
+                    for (let children of Array.from(child.children)) {
+                        for (let chold of Array.from(children.children)) {
+                            if (!!chold.src) {
+                                media.push(chold.src)
+                            } else {
+                                media.push(chold.attributes['data-image-url'].textContent)
+                            }
+                        }
+                    }
+                }
+            }
+            console.log(filteredContent)
+            return {
+                content: filteredContent,
+                classes: Array.from(document.querySelector('.js-stream-item:not(.js-pinned) div').classList),
+                id: document.querySelector('.js-stream-item:not(.js-pinned)').attributes['data-item-id'].textContent,
+                media,
+                author: {
+                    name: document.querySelector('.ProfileHeaderCard-name').innerText,
+                    avatar: document.querySelector('.ProfileAvatar-container').href,
+                    followers: !!document.querySelector('.ProfileNav-item--followers a .ProfileNav-value') ? document.querySelector('.ProfileNav-item--followers a .ProfileNav-value').innerText : null,
+                }
+            }
+        })
 
-      lastTweetId = tweet.id
-      saveToCacheFile(previousTweets, { url, tweet_id: lastTweetId }, url)
-      tweet = DiscordEmbed({ ...tweet, profileLink: url, link: generateTweetLink(tweet.author, tweet.id) })
+        if (tweet.id !== lastTweetId && tweet.classes.indexOf('tweet-has-context') == -1) { // if this tweet is not the same as the previous one
 
-      channel.send(tweet)
-      // repeat the process
-      await RefreshPageAndWait(page).then(() => {
-        getNewTweet(page, url, channel, lastTweetId, count)
-      })
-    } else { // same tweet
-      await RefreshPageAndWait(page).then(() => {
-        getNewTweet(page, url, channel, lastTweetId, count)
-      })
+            lastTweetId = tweet.id
+            saveToCacheFile(previousTweets, { url, tweet_id: lastTweetId }, url)
+            console.log('sending tweet..')
+
+            sendDiscordEmbed({ ...tweet, profileLink: url, link: generateTweetLink(tweet.author, tweet.id) }, channel)
+
+            // repeat the process
+            await RefreshPageAndWait(page).then(() => {
+                getNewTweet(page, url, channel, lastTweetId, count)
+            })
+        } else { // same tweet
+            await RefreshPageAndWait(page).then(() => {
+                getNewTweet(page, url, channel, lastTweetId, count)
+            })
+        }
+    } else {
+        await RefreshPageAndWait(page).then(() => {
+            getNewTweet(page, url, channel, lastTweetId, count)
+        })
     }
-  } else {
-    await RefreshPageAndWait(page).then(() => {
-      getNewTweet(page, url, channel, lastTweetId, count)
-    })
-  }
 }
 
-const DiscordEmbed = tweet =>
-  new Discord.RichEmbed()
-    .setColor('#0099ff')
-    .setAuthor(`${tweet.author.name}${!!tweet.author.followers ? '- ' + tweet.author.followers : ' - 0'} Followers`, tweet.author.avatar, 'https://google.com')
-    .addBlankField()
-    .setDescription(tweet.content)
-    .addField('Tweet Link', tweet.link, true)
+const sendDiscordEmbed = (tweet, channel) => {
+    let embed = new Discord.RichEmbed()
+        .setColor('#0099ff')
+        .setAuthor(`${tweet.author.name}${!!tweet.author.followers ? ' - ' + tweet.author.followers : ' - 0'} Followers`, tweet.author.avatar, tweet.profileLink)
+
+
+    if (tweet.content.length > 0) {
+        embed.setDescription(tweet.content)
+            .addBlankField()
+    }
+    debugger;
+    embed.setImage(tweet.media[0])
+    embed
+        // .setURL(tweet.link)
+        .addField('----Tweet----', tweet.link)
+        .addField('----Profile----', tweet.profileLink)
+    channel.send(embed)
+    tweet.media.map((x, i) => {
+        if (i !== 0) {
+            channel.send(new Discord.RichEmbed(x)
+                .setColor('#0099ff')
+                .setImage(x))
+        }
+    })
+}
+
 
 const generateTweetLink = (author, tweetId) => {
-  return `https://twitter.com/${author.name}/status/${tweetId}`
+    return `https://twitter.com/${author.name}/status/${tweetId}`
 }
 
 const RefreshPageAndWait = page => {
-  return new Promise(async (resolve, reject) => {
-    await page.evaluate(() => location.reload());
-    await page
-      .waitForSelector('.stream-item .js-tweet-text-container')
-      .then(() => resolve());
-  })
+    return new Promise(async (resolve, reject) => {
+        await page.evaluate(() => location.reload());
+        await page
+            .waitForSelector('.js-stream-item:not(.js-pinned)')
+            .then(() => resolve())
+            .catch((e) => resolve(RefreshPageAndWait(page)))
+    })
 }
 
 const saveToCacheFile = (previousTweets, tweet, url) => {
-  if(previousTweets.length < 1) {
-    previousTweets.push(tweet)
-  }else {
-    previousTweets = previousTweets.map(matweet => {
-      if (matweet.url == url) {
-        return tweet
-      }
-    })
-  }
+    if (previousTweets.length < 1) {
+        previousTweets.push(tweet)
+    } else {
+        previousTweets = previousTweets.map(matweet => {
+            if (matweet.url == url) {
+                return tweet
+            }
+            return matweet
+        })
+    }
 
-  fs.writeFileSync("./cache.json", JSON.stringify({ lastTweets: previousTweets }, null, 4));
+    fs.writeFileSync("./cache.json", JSON.stringify({ lastTweets: previousTweets }, null, 4));
 }
 
-// function exitHandler() {
-//   const previousTweets = JSON.parse(fs.readFileSync("./cache.json"));
-//   previousTweets.lastTweets.push(data)
-//   fs.writeFileSync("./cache.json", JSON.stringify(previousTweets, null, 4));
-//   console.log(previousTweets)
-//   // process.exit();
-// }
 
-process.stdin.resume();//so the program will not close instantly
-
-function exitHandler(options, exitCode) {
-  if (options.cleanup) console.log('clean');
-  if (exitCode || exitCode === 0) console.log(exitCode);
-  if (options.exit) process.exit();
-}
-
-//do something when app is closing
-process.on('exit', exitHandler.bind(null, { cleanup: true }));
-
-//catches ctrl+c event
-process.on('SIGINT', exitHandler.bind(null, { exit: true }));
-
-// catches "kill pid" (for example: nodemon restart)
-process.on('SIGUSR1', exitHandler.bind(null, { exit: true }));
-process.on('SIGUSR2', exitHandler.bind(null, { exit: true }));
-
-//catches uncaught exceptions
-process.on('uncaughtException', exitHandler.bind(null, { exit: true }));
-
-app.listen(4000, () => console.log(`server is up on 4000`));
+(async () => {
+    app.listen(await getPort(), () => console.log(`Production Server is up on 4000 url: ${url}`));
+})();
 
 module.exports = app;
